@@ -1109,7 +1109,8 @@
 # purposes such as recovering/recreating your admin room, or inviting
 # yourself back.
 #
-# See https://tuwunel.chat/troubleshooting.html#lost-access-to-admin-room for other ways to get back into your admin room.
+# See https://tuwunel.chat/troubleshooting.html#lost-access-to-admin-room
+# for other ways to get back into your admin room.
 #
 # Once this password is unset, all sessions will be logged out for
 # security purposes.
@@ -1121,6 +1122,19 @@
 # This item is undocumented. Please contribute documentation for it.
 #
 #notification_push_path = "/_matrix/push/v1/notify"
+
+# For compatibility and special purpose use only. Setting this option to
+# true will not filter messages sent to pushers based on rules or actions.
+# Everything will be sent to the pusher. This option is offered for
+# several reasons, but should not be necessary:
+# - Bypass to workaround bugs or outdated server-side ruleset support.
+# - Allow clients to evaluate pushrules themselves (due to the above).
+# - Hosting or companies which have custom pushers and internal needs.
+#
+# Note that setting this option to true will not affect the record of
+# notifications found in the notifications pane.
+#
+#push_everything = false
 
 # Allow local (your server only) presence updates/requests.
 #

@@ -1308,7 +1308,8 @@ pub struct Config {
 	/// purposes such as recovering/recreating your admin room, or inviting
 	/// yourself back.
 	///
-	/// See https://tuwunel.chat/troubleshooting.html#lost-access-to-admin-room for other ways to get back into your admin room.
+	/// See https://tuwunel.chat/troubleshooting.html#lost-access-to-admin-room
+	/// for other ways to get back into your admin room.
 	///
 	/// Once this password is unset, all sessions will be logged out for
 	/// security purposes.
@@ -1321,6 +1322,19 @@ pub struct Config {
 	/// default: "/_matrix/push/v1/notify"
 	#[serde(default = "default_notification_push_path")]
 	pub notification_push_path: String,
+
+	/// For compatibility and special purpose use only. Setting this option to
+	/// true will not filter messages sent to pushers based on rules or actions.
+	/// Everything will be sent to the pusher. This option is offered for
+	/// several reasons, but should not be necessary:
+	/// - Bypass to workaround bugs or outdated server-side ruleset support.
+	/// - Allow clients to evaluate pushrules themselves (due to the above).
+	/// - Hosting or companies which have custom pushers and internal needs.
+	///
+	/// Note that setting this option to true will not affect the record of
+	/// notifications found in the notifications pane.
+	#[serde(default)]
+	pub push_everything: bool,
 
 	/// Allow local (your server only) presence updates/requests.
 	///

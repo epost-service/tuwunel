@@ -8,7 +8,7 @@ use ruma::{
 			v1::{Device, Notification, NotificationCounts, NotificationPriority},
 		},
 	},
-	events::{TimelineEventType, room::power_levels::RoomPowerLevels},
+	events::TimelineEventType,
 	push::{Action, PushFormat, Ruleset, Tweak},
 	uint,
 };
@@ -29,24 +29,19 @@ where
 	let mut notify = None;
 	let mut tweaks = Vec::new();
 
-	let unread: UInt = self
-		.services
-		.pusher
-		.notification_count(user_id, event.room_id())
-		.await
-		.try_into()?;
-
-	let power_levels: RoomPowerLevels = self
+	let power_levels = self
 		.services
 		.state_accessor
 		.get_power_levels(event.room_id())
-		.await?;
+		.await
+		.ok();
 
 	let serialized = event.to_format();
-	for action in self
-		.get_actions(user_id, ruleset, &power_levels, &serialized, event.room_id())
-		.await
-	{
+	let actions = self
+		.get_actions(user_id, ruleset, power_levels.as_ref(), &serialized, event.room_id())
+		.await;
+
+	for action in actions {
 		let n = match action {
 			| Action::Notify => true,
 			| Action::SetTweak(tweak) => {
@@ -65,11 +60,18 @@ where
 		notify = Some(n);
 	}
 
-	if notify == Some(true) {
+	if notify == Some(true) || self.services.config.push_everything {
+		let unread: UInt = self
+			.services
+			.pusher
+			.notification_count(user_id, event.room_id())
+			.await
+			.try_into()
+			.unwrap_or_else(|_| uint!(1));
+
 		self.send_notice(unread, pusher, tweaks, event)
 			.await?;
 	}
-	// Else the event triggered no actions
 
 	Ok(())
 }

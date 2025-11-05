@@ -1,6 +1,6 @@
 use std::{collections::HashSet, sync::Arc};
 
-use futures::StreamExt;
+use futures::{FutureExt, StreamExt, future::join};
 use ruma::{
 	OwnedUserId, RoomId, UserId,
 	api::client::push::ProfileTag,
@@ -14,7 +14,7 @@ use tuwunel_core::{
 		event::Event,
 		pdu::{Count, Pdu, PduId, RawPduId},
 	},
-	utils::{self, ReadyExt, time::now_millis},
+	utils::{self, BoolExt, ReadyExt, future::TryExtExt, time::now_millis},
 };
 use tuwunel_database::{Json, Map};
 
@@ -44,7 +44,7 @@ pub struct Notified {
 #[tracing::instrument(name = "append", level = "debug", skip_all)]
 pub(crate) async fn append_pdu(&self, pdu_id: RawPduId, pdu: &Pdu) -> Result {
 	// Don't notify the sender of their own events, and dont send from ignored users
-	let mut push_target: HashSet<_> = self
+	let push_target = self
 		.services
 		.state_cache
 		.active_local_users_in_room(pdu.room_id())
@@ -55,19 +55,24 @@ pub(crate) async fn append_pdu(&self, pdu_id: RawPduId, pdu: &Pdu) -> Result {
 				.users
 				.user_is_ignored(pdu.sender(), &recipient_user)
 				.await
-				.eq(&false)
+				.is_false()
 				.then_some(recipient_user)
 		})
-		.collect()
-		.await;
+		.collect::<HashSet<_>>();
+
+	let power_levels = self
+		.services
+		.state_accessor
+		.get_power_levels(pdu.room_id())
+		.ok();
+
+	let (mut push_target, power_levels) = join(push_target, power_levels).boxed().await;
 
 	let mut notifies = Vec::with_capacity(push_target.len().saturating_add(1));
 	let mut highlights = Vec::with_capacity(push_target.len().saturating_add(1));
 
 	if *pdu.kind() == TimelineEventType::RoomMember {
-		if let Some(state_key) = pdu.state_key() {
-			let target_user_id = UserId::parse(state_key)?;
-
+		if let Some(Ok(target_user_id)) = pdu.state_key().map(UserId::parse) {
 			if self
 				.services
 				.users
@@ -94,16 +99,10 @@ pub(crate) async fn append_pdu(&self, pdu_id: RawPduId, pdu: &Pdu) -> Result {
 		let mut highlight = false;
 		let mut notify = false;
 
-		let power_levels = self
-			.services
-			.state_accessor
-			.get_power_levels(pdu.room_id())
-			.await?;
-
 		let actions = self
 			.services
 			.pusher
-			.get_actions(user, &rules_for_user, &power_levels, &serialized, pdu.room_id())
+			.get_actions(user, &rules_for_user, power_levels.as_ref(), &serialized, pdu.room_id())
 			.await;
 
 		for action in actions {
@@ -129,34 +128,35 @@ pub(crate) async fn append_pdu(&self, pdu_id: RawPduId, pdu: &Pdu) -> Result {
 			highlights.push(user.clone());
 		}
 
-		if !notify && !highlight {
-			continue;
+		if notify || highlight {
+			let id: PduId = pdu_id.into();
+			let notified = Notified {
+				ts: now_millis(),
+				sroomid: id.shortroomid,
+				tag: None,
+				actions: actions.into(),
+			};
+
+			if matches!(id.count, Count::Normal(_)) {
+				self.db
+					.useridcount_notification
+					.put((user, id.count.into_unsigned()), Json(notified));
+			}
 		}
 
-		let id: PduId = pdu_id.into();
-		let notified = Notified {
-			ts: now_millis(),
-			sroomid: id.shortroomid,
-			tag: None,
-			actions: actions.into(),
-		};
-
-		if matches!(id.count, Count::Normal(_)) {
-			self.db
-				.useridcount_notification
-				.put((user, id.count.into_unsigned()), Json(notified));
+		if notify || highlight || self.services.config.push_everything {
+			self.services
+				.pusher
+				.get_pushkeys(user)
+				.map(ToOwned::to_owned)
+				.ready_for_each(|push_key| {
+					self.services
+						.sending
+						.send_pdu_push(&pdu_id, user, push_key)
+						.expect("TODO: replace with future");
+				})
+				.await;
 		}
-
-		self.services
-			.pusher
-			.get_pushkeys(user)
-			.ready_for_each(|push_key| {
-				self.services
-					.sending
-					.send_pdu_push(&pdu_id, user, push_key.to_owned())
-					.expect("TODO: replace with future");
-			})
-			.await;
 	}
 
 	self.increment_notification_counts(pdu.room_id(), notifies, highlights);

@@ -5,7 +5,7 @@ mod send;
 
 use std::sync::Arc;
 
-use futures::{Stream, StreamExt};
+use futures::{Stream, StreamExt, TryFutureExt, future::join};
 use ipaddress::IPAddress;
 use ruma::{
 	DeviceId, OwnedDeviceId, RoomId, UserId,
@@ -17,7 +17,10 @@ use ruma::{
 };
 use tuwunel_core::{
 	Err, Result, err, implement,
-	utils::stream::{BroadbandExt, ReadyExt, TryIgnore},
+	utils::{
+		future::TryExtExt,
+		stream::{BroadbandExt, ReadyExt, TryIgnore},
+	},
 };
 use tuwunel_database::{Database, Deserialized, Ignore, Interfix, Json, Map};
 
@@ -223,39 +226,39 @@ pub async fn get_actions<'a>(
 	&self,
 	user: &UserId,
 	ruleset: &'a Ruleset,
-	power_levels: &RoomPowerLevels,
+	power_levels: Option<&RoomPowerLevels>,
 	pdu: &Raw<AnySyncTimelineEvent>,
 	room_id: &RoomId,
 ) -> &'a [Action] {
-	let power_levels = PushConditionPowerLevelsCtx {
-		users: power_levels.users.clone(),
-		users_default: power_levels.users_default,
-		notifications: power_levels.notifications.clone(),
-		rules: power_levels.rules.clone(),
-	};
+	let user_display_name = self
+		.services
+		.users
+		.displayname(user)
+		.unwrap_or_else(|_| user.localpart().to_owned());
 
 	let room_joined_count = self
 		.services
 		.state_cache
 		.room_joined_count(room_id)
-		.await
-		.unwrap_or(1)
-		.try_into()
-		.unwrap_or_else(|_| uint!(0));
+		.map_ok(TryInto::try_into)
+		.map_ok(|res| res.unwrap_or_else(|_| uint!(1)))
+		.unwrap_or_default();
 
-	let user_display_name = self
-		.services
-		.users
-		.displayname(user)
-		.await
-		.unwrap_or_else(|_| user.localpart().to_owned());
+	let (room_joined_count, user_display_name) = join(room_joined_count, user_display_name).await;
+
+	let power_levels = power_levels.map(|power_levels| PushConditionPowerLevelsCtx {
+		users: power_levels.users.clone(),
+		users_default: power_levels.users_default,
+		notifications: power_levels.notifications.clone(),
+		rules: power_levels.rules.clone(),
+	});
 
 	let ctx = PushConditionRoomCtx {
 		room_id: room_id.to_owned(),
 		member_count: room_joined_count,
 		user_id: user.to_owned(),
 		user_display_name,
-		power_levels: Some(power_levels),
+		power_levels,
 	};
 
 	ruleset.get_actions(pdu, &ctx).await
