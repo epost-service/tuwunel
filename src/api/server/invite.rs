@@ -1,13 +1,19 @@
 use axum::extract::State;
 use axum_client_ip::InsecureClientIp;
 use base64::{Engine as _, engine::general_purpose};
+use futures::StreamExt;
 use ruma::{
 	CanonicalJsonValue, OwnedUserId, UserId,
 	api::{
 		client::error::ErrorKind,
 		federation::membership::{RawStrippedState, create_invite},
 	},
-	events::room::member::{MembershipState, RoomMemberEventContent},
+	events::{
+		GlobalAccountDataEventType,
+		push_rules::PushRulesEvent,
+		room::member::{MembershipState, RoomMemberEventContent},
+	},
+	push,
 	serde::JsonObject,
 };
 use tuwunel_core::{
@@ -158,6 +164,36 @@ pub(crate) async fn create_invite_route(
 			)
 			.await?;
 		drop(count);
+
+		services
+			.pusher
+			.get_pushkeys(&invited_user)
+			.map(ToOwned::to_owned)
+			.for_each(async |pushkey| {
+				let Ok(pusher) = services
+					.pusher
+					.get_pusher(&invited_user, &pushkey)
+					.await
+				else {
+					return;
+				};
+
+				let ruleset = services
+					.account_data
+					.get_global(&invited_user, GlobalAccountDataEventType::PushRules)
+					.await
+					.map_or_else(
+						|_| push::Ruleset::server_default(&invited_user),
+						|ev: PushRulesEvent| ev.content.global,
+					);
+
+				services
+					.pusher
+					.send_push_notice(&invited_user, &pusher, &ruleset, &pdu)
+					.await
+					.ok();
+			})
+			.await;
 
 		for appservice in services.appservice.read().await.values() {
 			if appservice.is_user_match(&invited_user) {
