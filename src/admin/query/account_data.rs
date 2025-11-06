@@ -2,6 +2,7 @@ use clap::Subcommand;
 use futures::StreamExt;
 use ruma::{OwnedRoomId, OwnedUserId};
 use tuwunel_core::Result;
+use tuwunel_database::Deserialized;
 
 use crate::{admin_command, admin_command_dispatch};
 
@@ -46,7 +47,7 @@ async fn changes_since(
 		.await;
 	let query_time = timer.elapsed();
 
-	self.write_str(&format!("Query completed in {query_time:?}:\n\n```rs\n{results:#?}\n```"))
+	self.write_str(&format!("Query completed in {query_time:?}:\n\n```rs\n{results:?}\n```"))
 		.await
 }
 
@@ -58,11 +59,12 @@ async fn account_data_get(
 	room_id: Option<OwnedRoomId>,
 ) -> Result {
 	let timer = tokio::time::Instant::now();
-	let results = self
+	let results: serde_json::Value = self
 		.services
 		.account_data
 		.get_raw(room_id.as_deref(), &user_id, &kind)
-		.await;
+		.await
+		.deserialized()?;
 	let query_time = timer.elapsed();
 
 	self.write_str(&format!("Query completed in {query_time:?}:\n\n```rs\n{results:#?}\n```"))
