@@ -2178,6 +2178,8 @@ pub struct WellKnownConfig {
 	/// type = "livekit"
 	/// livekit_service_url = "https://livekit.yourdomain.com"
 	/// ```
+	///
+	/// default: []
 	#[serde(default)]
 	pub rtc_transports: Vec<serde_json::Value>,
 }

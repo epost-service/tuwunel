@@ -103,9 +103,6 @@ EOF
 
 FROM input AS complement-testee
 
-WORKDIR /
-COPY --link --from=input . .
-
 EXPOSE 8008 8448
 RUN mkdir /database
 COPY --from=complement-config * /complement/
@@ -114,9 +111,6 @@ ENTRYPOINT tuwunel -Oserver_name=\""$SERVER_NAME\""
 
 
 FROM input AS complement-testee-valgrind
-
-WORKDIR /
-COPY --link --from=input . .
 
 EXPOSE 8008 8448
 RUN mkdir /database
@@ -134,12 +128,13 @@ ENTRYPOINT valgrind \
 FROM input AS complement-base
 ARG var_cache
 ARG var_lib_apt
+ARG complement_ref="426bc3458e5287398ec39ab7d2b8f2e3103dcf39"
 ARG complement_tags="conduwuit_blacklist"
 ARG complement_tests="./tests/..."
 ARG complement_run=".*"
 
 WORKDIR /usr/src
-ADD https://github.com/matrix-construct/complement.git#403840348f6bcc9cc8ed1671dc2f638c2b1ce4ac complement
+ADD https://github.com/matrix-construct/complement.git#${complement_ref} complement
 
 WORKDIR /usr/src/complement
 ENV COMPLEMENT_BASE_IMAGE="complement-testee"
@@ -157,7 +152,7 @@ ARG complement_verbose=0
 ARG complement_debug=0
 ARG complement_dirty=0
 ARG complement_count=1
-ARG complement_parallel=16
+ARG complement_parallel=1
 ARG complement_shuffle=1337
 ARG complement_timeout="1h"
 ARG complement_run=".*"
@@ -165,9 +160,6 @@ ARG complement_skip=""
 ARG complement_tags="conduwuit_blacklist"
 ARG complement_tests="./tests/..."
 ARG complement_base_image
-
-WORKDIR /
-COPY --link --from=input . .
 
 WORKDIR /usr/src/complement
 ENV COMPLEMENT_DEBUG=$complement_debug

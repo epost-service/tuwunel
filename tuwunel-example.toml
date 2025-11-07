@@ -1864,7 +1864,7 @@
 # livekit_service_url = "https://livekit.yourdomain.com"
 # ```
 #
-#rtc_transports = false
+#rtc_transports = []
 
 #[global.blurhashing]
 

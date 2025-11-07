@@ -202,8 +202,25 @@ craneLib.buildPackage ( commonAttrs // {
     env = buildDepsOnlyEnv;
   });
 
-  # Disabled due to integration test failing to find /etc/resolv.conf
-  doCheck = false;
+  nativeCheckInputs = [
+    pkgsBuildHost.libredirect.hook
+  ];
+
+  preCheck =
+    let
+      fakeResolvConf = pkgsBuildHost.writeTextFile {
+        name = "resolv.conf";
+        text = ''
+          nameserver 0.0.0.0
+        '';
+      };
+    in
+    ''
+      export NIX_REDIRECTS="/etc/resolv.conf=${fakeResolvConf}"
+      export TUWUNEL_DATABASE_PATH="$(mktemp -d)/smoketest.db"
+    '';
+  doCheck = true;
+
   doBenchmark = false;
 
   cargoExtraArgs = "--no-default-features --locked "
